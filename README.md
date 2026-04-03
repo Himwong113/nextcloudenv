@@ -32,6 +32,7 @@ This project turns your PC into a private cloud storage server for your whole fa
 | `Dockerfile` | Nextcloud container definition |
 | `docker-compose.yml` | Full stack: Nextcloud + MariaDB + Cloudflare Tunnel |
 | `manage_volume.sh` | Start/stop the stack; set volume dir and port |
+| `configure_nextcloud.sh` | Sync trusted domains / overwrite URL into live Nextcloud config |
 | `setup_users.sh` | Create family accounts via Nextcloud OCC CLI |
 | `.env` | Secret credentials (not committed to Git) |
 | `.env.example` | Template for `.env` |
@@ -49,7 +50,10 @@ Edit `.env` and fill in:
 - `NEXTCLOUD_ADMIN_USER` / `NEXTCLOUD_ADMIN_PASSWORD` — admin login
 - `MYSQL_ROOT_PASSWORD` / `MYSQL_PASSWORD` — database credentials
 - `CLOUDFLARE_TUNNEL_TOKEN` — from Cloudflare dashboard (see step 3)
-- `NEXTCLOUD_TRUSTED_DOMAINS` — add your Cloudflare tunnel hostname
+- `OWN_DOMAIN` — your Cloudflare public hostname
+- `NEXTCLOUD_OVERWRITE_CLI_URL` — optional explicit public URL
+- `NEXTCLOUD_TRUSTED_DOMAINS` — optional extra trusted domains besides `localhost` and `OWN_DOMAIN`
+- `NEXTCLOUD_TRUSTED_PROXIES` — optional reverse proxies such as `127.0.0.1 cloudflared`
 
 ### 2. Start the stack
 ```bash
@@ -62,6 +66,8 @@ Edit `.env` and fill in:
 # Start with a custom port
 ./manage_volume.sh -p 9090 --up
 ```
+`manage_volume.sh --up` now also syncs `trusted_domains`, `overwrite.cli.url`, and optional `trusted_proxies` into the live Nextcloud config so a fresh install on another PC is much less likely to hit the untrusted-domain issue.
+
 Access Nextcloud locally at: `http://localhost:8080`
 
 ### 3. Set up Cloudflare Tunnel (remote access)
@@ -101,15 +107,24 @@ CLOUDFLARE_TUNNEL_TOKEN=eyJ.....your_token_here
 
 **E. Trust the domain in Nextcloud**
 
-Add the hostname to `NEXTCLOUD_TRUSTED_DOMAINS` in `.env`:
+Add your hostname to `OWN_DOMAIN` in `.env`:
 ```bash
-NEXTCLOUD_TRUSTED_DOMAINS=localhost cloud.yourfamily.com
+OWN_DOMAIN=cloud.yourfamily.com
+NEXTCLOUD_TRUSTED_DOMAINS=localhost
+```
+
+Optional if you want to force a specific public URL or proxy list:
+```bash
+NEXTCLOUD_OVERWRITE_CLI_URL=https://cloud.yourfamily.com
+NEXTCLOUD_TRUSTED_PROXIES=127.0.0.1 cloudflared
 ```
 
 **F. Restart the stack**
 ```bash
 ./manage_volume.sh --down && ./manage_volume.sh --up
 ```
+
+The startup script will automatically add `OWN_DOMAIN` to Nextcloud's live `trusted_domains`.
 
 Family members can now open `https://cloud.yourfamily.com` in any browser or the Nextcloud mobile app.
 

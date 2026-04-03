@@ -1,8 +1,9 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
-ENV_FILE="$(dirname "$0")/.env"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="$SCRIPT_DIR/.env"
 
 VOLUME_DIR=""
 PORT=""
@@ -12,12 +13,86 @@ usage() {
   echo "Usage: $0 [-v <volume_directory>] [-p <port>] [--up] [--down]"
   echo "  -v <volume_directory>  Set the Nextcloud data directory (updates .env)"
   echo "  -p <port>              Set the host port (updates .env)"
-  echo "  --up                   Start the Nextcloud stack via docker-compose"
+  echo "  --up                   Start the Nextcloud stack and sync Nextcloud config"
   echo "  --down                 Stop and remove the Nextcloud stack"
   exit 1
 }
 
-# Parse all arguments manually (handles both --long and -short flags)
+compose_cmd() {
+  if docker compose version >/dev/null 2>&1; then
+    echo "docker compose"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    echo "docker-compose"
+  else
+    echo "Error: neither 'docker compose' nor 'docker-compose' is available." >&2
+    exit 1
+  fi
+}
+
+set_env_value() {
+  local key="$1"
+  local value="$2"
+
+  if grep -q "^${key}=" "$ENV_FILE"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+  else
+    echo "${key}=${value}" >> "$ENV_FILE"
+  fi
+}
+
+print_access_url() {
+  local current_port
+  current_port="$(grep '^PORT=' "$ENV_FILE" | cut -d= -f2)"
+  echo "Nextcloud is running at http://localhost:${current_port}"
+}
+
+sync_nextcloud_runtime_config() {
+  echo "Synchronizing Nextcloud trusted domains and overwrite settings..."
+  "$SCRIPT_DIR/configure_nextcloud.sh"
+}
+
+run_compose() {
+  local compose_bin
+  compose_bin="$(compose_cmd)"
+
+  if [ "$compose_bin" = "docker compose" ]; then
+    docker compose --env-file "$ENV_FILE" -f "$SCRIPT_DIR/docker-compose.yml" "$@"
+  else
+    docker-compose --file "$SCRIPT_DIR/docker-compose.yml" "$@"
+  fi
+}
+
+compose_up() {
+  local compose_bin
+  compose_bin="$(compose_cmd)"
+
+  if [ "$compose_bin" = "docker compose" ]; then
+    run_compose up -d
+    return
+  fi
+
+  local log_file
+  log_file="$(mktemp)"
+
+  if docker-compose --file "$SCRIPT_DIR/docker-compose.yml" up -d >"$log_file" 2>&1; then
+    cat "$log_file"
+    rm -f "$log_file"
+    return
+  fi
+
+  cat "$log_file"
+
+  if grep -q "ContainerConfig" "$log_file"; then
+    echo "docker-compose hit a legacy recreate bug. Retrying with a compatibility fallback..."
+    docker-compose --file "$SCRIPT_DIR/docker-compose.yml" up -d --no-recreate
+    rm -f "$log_file"
+    return
+  fi
+
+  rm -f "$log_file"
+  return 1
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --up)
@@ -42,79 +117,29 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Update NEXTCLOUD_DATA_DIR in .env if -v was provided
 if [ -n "$VOLUME_DIR" ]; then
   mkdir -p "$VOLUME_DIR"
-  if grep -q "^NEXTCLOUD_DATA_DIR=" "$ENV_FILE"; then
-    sed -i "s|^NEXTCLOUD_DATA_DIR=.*|NEXTCLOUD_DATA_DIR=$VOLUME_DIR|" "$ENV_FILE"
-  else
-    echo "NEXTCLOUD_DATA_DIR=$VOLUME_DIR" >> "$ENV_FILE"
-  fi
+  set_env_value "NEXTCLOUD_DATA_DIR" "$VOLUME_DIR"
   echo "Volume directory set to: $VOLUME_DIR"
 fi
 
-# Update PORT in .env if -p was provided
 if [ -n "$PORT" ]; then
-  if grep -q "^PORT=" "$ENV_FILE"; then
-    sed -i "s|^PORT=.*|PORT=$PORT|" "$ENV_FILE"
-  else
-    echo "PORT=$PORT" >> "$ENV_FILE"
-  fi
+  set_env_value "PORT" "$PORT"
   echo "Port set to: $PORT"
 fi
 
-# Execute action
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-if [ "$ACTION" == "down" ]; then
+if [ "$ACTION" = "down" ]; then
   echo "Stopping and removing the Nextcloud stack..."
-  (cd "$SCRIPT_DIR" && docker-compose down)
+  run_compose down
   exit 0
-elif [ "$ACTION" == "up" ] || [ -n "$VOLUME_DIR" ] || [ -n "$PORT" ]; then
+fi
+
+if [ "$ACTION" = "up" ] || [ -n "$VOLUME_DIR" ] || [ -n "$PORT" ]; then
   echo "Starting the Nextcloud stack..."
-  (cd "$SCRIPT_DIR" && docker-compose up -d)
-  echo "Nextcloud is running at http://localhost:$(grep '^PORT=' "$ENV_FILE" | cut -d= -f2)"
-  exit 0
 else
   echo "Starting the Nextcloud stack with current .env settings..."
-  (cd "$SCRIPT_DIR" && docker-compose up -d)
-  echo "Nextcloud is running at http://localhost:$(grep '^PORT=' "$ENV_FILE" | cut -d= -f2)"
 fi
 
-# Update NEXTCLOUD_DATA_DIR in .env if -v was provided
-if [ -n "$VOLUME_DIR" ]; then
-  mkdir -p "$VOLUME_DIR"
-  if grep -q "^NEXTCLOUD_DATA_DIR=" "$ENV_FILE"; then
-    sed -i "s|^NEXTCLOUD_DATA_DIR=.*|NEXTCLOUD_DATA_DIR=$VOLUME_DIR|" "$ENV_FILE"
-  else
-    echo "NEXTCLOUD_DATA_DIR=$VOLUME_DIR" >> "$ENV_FILE"
-  fi
-  echo "Volume directory set to: $VOLUME_DIR"
-fi
-
-# Update PORT in .env if -p was provided
-if [ -n "$PORT" ]; then
-  if grep -q "^PORT=" "$ENV_FILE"; then
-    sed -i "s|^PORT=.*|PORT=$PORT|" "$ENV_FILE"
-  else
-    echo "PORT=$PORT" >> "$ENV_FILE"
-  fi
-  echo "Port set to: $PORT"
-fi
-
-# Execute action
-if [ "$ACTION" == "down" ]; then
-  echo "Stopping and removing the Nextcloud stack..."
-  docker compose --env-file "$ENV_FILE" -f "$(dirname "$0")/docker-compose.yml" down
-  exit 0
-elif [ "$ACTION" == "up" ] || [ -n "$VOLUME_DIR" ] || [ -n "$PORT" ]; then
-  echo "Starting the Nextcloud stack..."
-  docker compose --env-file "$ENV_FILE" -f "$(dirname "$0")/docker-compose.yml" up -d
-  echo "Nextcloud is running at http://localhost:$(grep '^PORT=' "$ENV_FILE" | cut -d= -f2)"
-  exit 0
-else
-  # No flags given — default: start the stack
-  echo "Starting the Nextcloud stack with current .env settings..."
-  docker compose --env-file "$ENV_FILE" -f "$(dirname "$0")/docker-compose.yml" up -d
-  echo "Nextcloud is running at http://localhost:$(grep '^PORT=' "$ENV_FILE" | cut -d= -f2)"
-fi
+compose_up
+sync_nextcloud_runtime_config
+print_access_url
