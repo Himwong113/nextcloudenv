@@ -43,12 +43,20 @@ while IFS= read -r line || [ -n "$line" ]; do
   # Skip blank lines and comments
   [[ -z "$line" || "$line" == \#* ]] && continue
 
-  USERNAME=$(echo "$line" | awk '{print $1}')
-  PASSWORD=$(echo "$line" | awk '{print $2}')
-  DISPLAYNAME=$(echo "$line" | cut -d' ' -f3-)
+  read -r USERNAME PASSWORD DISPLAYNAME <<< "$(echo "$line" | xargs)"
+
+  # Ignore the example/header row if it was copied into users.conf.
+  if [[ "$USERNAME" == "username" && "$PASSWORD" == "password" ]]; then
+    continue
+  fi
 
   if [ -z "$USERNAME" ] || [ -z "$PASSWORD" ]; then
     echo "Skipping invalid line: $line"
+    continue
+  fi
+
+  if docker exec "$CONTAINER" php occ user:info "$USERNAME" >/dev/null 2>&1; then
+    echo "Skipping existing user: $USERNAME"
     continue
   fi
 

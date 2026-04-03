@@ -1,3 +1,5 @@
 .env
 db_data/
 users.conf
+CLOUDFLARE_SETUP.md
+.codex
