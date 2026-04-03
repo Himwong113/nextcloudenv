@@ -1,0 +1,11 @@
+# users.conf.example — Family account template
+# Copy this file to users.conf and fill in your family members.
+# users.conf is excluded from Git via .gitignore.
+#
+# Format: username password Display Name
+# Example:
+# mum        SecurePass1   Mum
+# dad        SecurePass2   Dad
+# alice      SecurePass3   Alice
+# bob        SecurePass4   Bob
+# charlie    SecurePass5   Charlie

@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  db:
+    image: mariadb:11
+    container_name: nextcloud_db
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - ./db_data:/var/lib/mysql
+
+  nextcloud:
+    image: nextcloud:latest
+    container_name: nextcloud_container
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "${PORT:-8080}:80"
+    env_file: .env
+    environment:
+      NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER}
+      NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD}
+      NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_TRUSTED_DOMAINS:-localhost}
+      MYSQL_HOST: db
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      PHP_UPLOAD_LIMIT: "16G"
+      PHP_MEMORY_LIMIT: "512M"
+    volumes:
+      - ${NEXTCLOUD_DATA_DIR:-/var/nextcloud_data}:/var/www/html
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: nextcloud_tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - nextcloud
