@@ -136,14 +136,12 @@ sync_overwrite_url() {
 
   run_occ config:system:set overwrite.cli.url --value="$overwrite_url" >/dev/null
 
-  case "$overwrite_url" in
-    https://*)
-      run_occ config:system:set overwriteprotocol --value=https >/dev/null
-      ;;
-    http://*)
-      run_occ config:system:set overwriteprotocol --value=http >/dev/null
-      ;;
-  esac
+  # Do NOT force overwriteprotocol here.
+  # When accessed via Cloudflare Tunnel, Cloudflare terminates HTTPS externally
+  # and forwards requests to Nextcloud as plain HTTP internally.
+  # Forcing overwriteprotocol=https breaks local http://localhost access (CSRF block on uploads).
+  # Nextcloud will auto-detect the protocol from X-Forwarded-Proto if cloudflared
+  # is listed in trusted_proxies.
 
   log "overwrite.cli.url set to: $overwrite_url"
 }
