@@ -157,7 +157,7 @@ Use a custom config file:
 
 | Command | Description |
 |---|---|
-| `./manage_volume.sh --up` | Start the stack |
+| `ls "/run/media/mc/萤捷/nasDB"` | Start the stack |
 | `./manage_volume.sh --down` | Stop and remove the stack |
 | `./manage_volume.sh -v /path/to/data` | Change data dir and restart |
 | `./manage_volume.sh -p 9090` | Change port and restart |
